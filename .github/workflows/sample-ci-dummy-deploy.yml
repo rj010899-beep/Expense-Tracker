@@ -54,6 +54,8 @@ jobs:
           echo "[Stage 2] Static security testing started"
           echo "Running SAST checks..."
           echo "5 high-risk vulnerabilities found"
+          echo "Failing pipeline due to security threshold breach"
+          exit 1
 
   build:
     name: Build
