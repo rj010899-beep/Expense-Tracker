@@ -1,0 +1,81 @@
+name: Sample CI Dummy Deployment
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  workspace_init:
+    name: Workspace init
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Simulate workspace initialization
+        run: |
+          echo "[Stage 1] Workspace init started"
+          echo "Preparing runner environment..."
+          echo "Installing dependencies..."
+          echo "Workspace initialization complete"
+
+  unit_tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    needs: workspace_init
+    steps:
+      - name: Simulate unit tests
+        run: |
+          echo "[Stage 2] Unit testing started"
+          echo "Running unit test suite..."
+          echo "Unit tests passed"
+
+  sonar_analysis:
+    name: Sonar analysis
+    runs-on: ubuntu-latest
+    needs: workspace_init
+    steps:
+      - name: Simulate Sonar scan
+        run: |
+          echo "[Stage 2] Sonar analysis started"
+          echo "Scanning code quality and coverage..."
+          echo "Sonar analysis passed"
+
+  static_security_testing:
+    name: Static Security testing
+    runs-on: ubuntu-latest
+    needs: workspace_init
+    steps:
+      - name: Simulate static security testing
+        run: |
+          echo "[Stage 2] Static security testing started"
+          echo "Running SAST checks..."
+          echo "No high-risk vulnerabilities found"
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs:
+      - unit_tests
+      - sonar_analysis
+      - static_security_testing
+    steps:
+      - name: Simulate build
+        run: |
+          echo "[Stage 3] Build started"
+          echo "Compiling and packaging artifacts..."
+          echo "Build completed successfully"
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Simulate deployment
+        run: |
+          echo "[Stage 4] Deploy started"
+          echo "Deploying application to target environment..."
+          echo "Deployment completed successfully"
