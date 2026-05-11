@@ -59,6 +59,8 @@ jobs:
 
           gh extension install github/gh-copilot >/dev/null 2>&1 || gh extension upgrade github/gh-copilot >/dev/null 2>&1
 
+          gh auth status > copilot_auth_status.txt 2>&1
+
           cat > copilot_prompt.txt <<'EOF'
           You are preparing a daily maintainer digest for an offline-first PWA project (Expense Tracker).
 
@@ -82,7 +84,9 @@ jobs:
 
           cat repo_context.md >> copilot_prompt.txt
 
-          DIGEST=$(gh copilot suggest -t shell "$(cat copilot_prompt.txt)" 2>/dev/null)
+          gh copilot suggest -t shell "$(cat copilot_prompt.txt)" > copilot_stdout.txt 2> copilot_stderr.txt
+          COPILOT_EXIT=$?
+          DIGEST=$(cat copilot_stdout.txt)
 
           {
             echo "digest<<EOF"
@@ -97,6 +101,11 @@ jobs:
               echo ""
               echo "## Attention needed"
               echo "- Validate GitHub Copilot CLI availability for Actions if richer summaries are expected."
+              echo "- Copilot CLI exit code in this run: $COPILOT_EXIT"
+              if [ -s copilot_stderr.txt ]; then
+                echo "- Copilot CLI error (truncated):"
+                head -n 10 copilot_stderr.txt
+              fi
               echo ""
               echo "## Suggested next steps"
               echo "- Triage open issues updated in the last 24-48 hours."
@@ -171,3 +180,7 @@ jobs:
           path: |
             repo_context.md
             issue_body.md
+            copilot_prompt.txt
+            copilot_auth_status.txt
+            copilot_stdout.txt
+            copilot_stderr.txt
