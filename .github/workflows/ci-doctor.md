@@ -24,7 +24,7 @@ network: defaults
 
 engine:
   id: copilot
-  model: gpt-5.1-codex-mini
+  model: Auto
 
 safe-outputs:
   create-issue:
