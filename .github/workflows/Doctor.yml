@@ -1,0 +1,163 @@
+name: CI Failure Doctor (No gh aw)
+
+on:
+  workflow_run:
+    workflows: ["Sample CI Dummy Deployment"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+  models: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'cancelled' }}
+
+    steps:
+      - name: Gather failed jobs and logs
+        id: logs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runId = context.payload.workflow_run.id;
+            const {owner, repo} = context.repo;
+            const jobsResp = await github.request('GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs', {
+              owner, repo, run_id: runId, per_page: 100
+            });
+            const failed = jobsResp.data.jobs.filter(j => j.conclusion === 'failure' || j.conclusion === 'cancelled');
+
+            let body = '';
+            for (const j of failed) {
+              body += `\n===== ${j.name} =====\n`;
+              try {
+                const logsResp = await github.request(j.logs_url, {
+                  headers: { accept: 'application/vnd.github+json' }
+                });
+                const txt = typeof logsResp.data === 'string' ? logsResp.data : JSON.stringify(logsResp.data);
+                body += txt.slice(-12000) + '\n';
+              } catch (e) {
+                body += `Could not fetch logs: ${e.message}\n`;
+              }
+            }
+
+            core.setOutput('failed_jobs', failed.map(f => f.name).join(', ') || 'none');
+            core.setOutput('log_excerpt', body.slice(-20000));
+
+      - name: AI analysis with GitHub Copilot CLI
+        id: ai
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FAILED_JOBS: ${{ steps.logs.outputs.failed_jobs }}
+          LOG_EXCERPT: ${{ steps.logs.outputs.log_excerpt }}
+        run: |
+          set +e
+
+          cat > prompt.txt <<'EOF'
+          Analyze CI failures and provide:
+          1) root causes per failed job
+          2) concrete fix steps
+          3) prevention ideas
+          EOF
+          echo "" >> prompt.txt
+          echo "Failed jobs: $FAILED_JOBS" >> prompt.txt
+          echo "" >> prompt.txt
+          echo "$LOG_EXCERPT" >> prompt.txt
+
+          gh extension install github/gh-copilot >/dev/null 2>&1 || gh extension upgrade github/gh-copilot >/dev/null 2>&1
+
+          PROMPT=$(cat prompt.txt)
+          COPILOT_OUTPUT=$(gh copilot suggest -t shell "$PROMPT" 2>/dev/null)
+
+          echo "analysis<<EOF" >> $GITHUB_OUTPUT
+          if [ -n "$COPILOT_OUTPUT" ]; then
+            echo "$COPILOT_OUTPUT" >> $GITHUB_OUTPUT
+          else
+            echo "" >> $GITHUB_OUTPUT
+          fi
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Heuristic fallback
+        id: fallback
+        if: ${{ steps.ai.outputs.analysis == '' }}
+        env:
+          FAILED_JOBS: ${{ steps.logs.outputs.failed_jobs }}
+        run: |
+          {
+            echo "analysis<<EOF"
+            echo "Failed jobs: $FAILED_JOBS"
+            echo ""
+            echo "Fallback diagnosis:"
+            echo "- Check dependency lockfile drift and runtime versions"
+            echo "- Verify test data, secrets, and branch-specific configs"
+            echo "- Review recent changes touching failing components"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Build report
+        id: report
+        run: |
+          ANALYSIS="${{ steps.ai.outputs.analysis }}"
+          if [ -z "$ANALYSIS" ]; then
+            ANALYSIS="${{ steps.fallback.outputs.analysis }}"
+          fi
+
+          cat > report.md <<EOF
+          # CI Failure Investigation
+
+          ## Run
+          ${{ github.event.workflow_run.html_url }}
+
+          ## Failed Jobs
+          ${{ steps.logs.outputs.failed_jobs }}
+
+          ## Diagnosis
+          $ANALYSIS
+          EOF
+
+      - name: Search duplicate issues
+        id: dup
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const q = `repo:${context.repo.owner}/${context.repo.repo} is:issue in:title "[CI Failure Doctor]" state:open`;
+            const res = await github.request('GET /search/issues', { q, per_page: 10 });
+            core.setOutput('duplicate_issue', res.data.items.length ? String(res.data.items[0].number) : '');
+
+      - name: Comment duplicate issue
+        if: ${{ steps.dup.outputs.duplicate_issue != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue_number = Number('${{ steps.dup.outputs.duplicate_issue }}');
+            const fs = require('fs');
+            const body = fs.readFileSync('report.md', 'utf8');
+            await github.request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+              owner: context.repo.owner, repo: context.repo.repo, issue_number, body
+            });
+
+      - name: Create new issue
+        if: ${{ steps.dup.outputs.duplicate_issue == '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('report.md', 'utf8');
+            await github.request('POST /repos/{owner}/{repo}/issues', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '[CI Failure Doctor] Investigation for run #' + context.payload.workflow_run.run_number,
+              labels: ['cookie'],
+              body
+            });
+
+      - name: Upload investigation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-failure-report-${{ github.event.workflow_run.id }}
+          path: report.md
