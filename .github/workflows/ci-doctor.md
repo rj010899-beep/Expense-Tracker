@@ -22,9 +22,7 @@ permissions:
 
 network: defaults
 
-engine:
-  id: copilot
-  model: Auto
+engine: copilot
 
 safe-outputs:
   create-issue:
