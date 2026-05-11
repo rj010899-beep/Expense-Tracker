@@ -1,4 +1,4 @@
-name: Sample CI Dummy Deployment
+name: CI
 
 on:
   push:
