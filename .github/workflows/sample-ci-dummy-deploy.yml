@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "[Stage 2] Static security testing started"
           echo "Running SAST checks..."
-          echo "No high-risk vulnerabilities found"
+          echo "5 high-risk vulnerabilities found"
 
   build:
     name: Build
